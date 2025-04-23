@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <atomic>
 #include <windows.h>
+#include <random>
 
 using namespace std;
 using namespace chrono;
@@ -19,15 +20,21 @@ struct ThreadData {
     atomic<bool> finished{ false };
     milliseconds duration{ 0 };
     thread::id id;
+    int task_length; // Добавим длительность задачи для каждого потока
 };
 
-void calculate_task(int thread_num, int task_length, vector<ThreadData>& threads_data) {
+void calculate_task(int thread_num, vector<ThreadData>& threads_data) {
     auto start_time = high_resolution_clock::now();
     threads_data[thread_num].id = this_thread::get_id();
 
+    // Генератор случайных чисел для задержки
+    random_device rd;
+    mt19937 gen(rd());
+    uniform_int_distribution<> delay_dist(10, 100); // Случайная задержка между шагами
+
     for (int i = 0; i <= progress_bar_length; ++i) {
         threads_data[thread_num].progress = i;
-        this_thread::sleep_for(milliseconds(task_length / progress_bar_length));
+        this_thread::sleep_for(milliseconds(delay_dist(gen)));
     }
 
     auto end_time = high_resolution_clock::now();
@@ -46,7 +53,7 @@ void display_progress(const vector<ThreadData>& threads_data) {
     // Позиции для каждого прогресс-бара
     vector<COORD> positions(threads_data.size());
 
-    { //Область видимости мьютекса
+    { // Область видимости мьютекса
         lock_guard<mutex> lock(cout_mutex);
         for (size_t i = 0; i < threads_data.size(); ++i) {
             cout << "Поток " << i + 1 << " (ID: " << threads_data[i].id << ") [";
@@ -54,7 +61,7 @@ void display_progress(const vector<ThreadData>& threads_data) {
             cout << "] 0%\n";
             positions[i] = { 0, static_cast<SHORT>(i) };
         }
-    } //Тут мьютекс освобождается
+    } // Тут мьютекс освобождается
 
     // Основной цикл обновления
     while (true) {
@@ -102,14 +109,21 @@ int main() {
     SetConsoleOutputCP(1251);
 
     const int num_threads = 5;
-    const int task_length = 3000;
 
     vector<ThreadData> threads_data(num_threads);
     vector<thread> threads;
 
+    random_device rd;
+    mt19937 gen(rd());
+    uniform_int_distribution<> length_dist(1000, 5000); // Случайная длительность от 1 до 5 секунд
+
+    for (int i = 0; i < num_threads; ++i) {
+        threads_data[i].task_length = length_dist(gen);
+    }
+
     // Запускаем потоки с задачами
     for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back(calculate_task, i, task_length, ref(threads_data));
+        threads.emplace_back(calculate_task, i, ref(threads_data));
     }
 
     // Запускаем поток для отображения прогресса
